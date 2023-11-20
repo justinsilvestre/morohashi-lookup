@@ -1,9 +1,15 @@
+<!DOCTYPE html>
 <html>
   <meta charset="utf-8" />
   <head></head>
   <style type="text/css">
     #iframe {
       width: 100%;
+    }
+
+    html,body{
+      height: 100%;
+      margin: 0;
     }
 
     .container {
@@ -38,8 +44,6 @@
         <section id="massLookup"></section>
         <form id="form">
           <input id="inputText" type="text"></input>
-
-          <button>go</button>
         </form>
         <section id="matches"></section>
       </section>
@@ -49,6 +53,7 @@
 
     <script type="text/javascript">
       (async function () {
+        console.log('Starting app...')
         window.db = new Dexie("morohashiLookup");
 
         // Declare tables, IDs and indexes
@@ -61,96 +66,12 @@
           console.log("Initializing db");
           console.log(await db.jukugo.toCollection().count());
           await initializeDb(db);
+        } else {
+          console.log("Db already initialized");
         }
       })();
 
       window.inputText.addEventListener("input", async (e) => {
-        const trimmed = e.target.value.trim();
-        const matches = trimmed
-          ? await db.jukugo.where("name").startsWith(trimmed).toArray()
-          : [];
-        console.log(e.target.value);
-        console.log({ matches, trimmed, });
-        let characterMatch = await db.jukugo.where("name").startsWith([...trimmed][0]).first()
-        window.characterMatch = characterMatch ? characterMatch.firstCharacterNumber : null
-        const matchesGroups = matches
-          .reduce((all, match) => {
-            all[match.firstCharacterNumber] = all[match.firstCharacterNumber] || []
-            all[match.firstCharacterNumber].push(match)
-            return all
-          }, {})
-        window.matches.innerHTML = `${Object.entries(matchesGroups).map(([firstCharacterNumber, matches]) => {
-            return `<small data-character-number="${firstCharacterNumber}">${firstCharacterNumber}</small>
-            <ul>${
-              matches.map((match) => {
-
-                return matchListItem(match)
-              }).join('')
-            }</ul>`
-          })
-              .join("")}`;
-      });
-
-      window.prevVolumeIndex = null;
-
-      document.querySelector('.container').addEventListener("click", (e) => {
-        console.log(e.target);
-        if (e.target.dataset && e.target.dataset.characterNumber) { 
-          const { volume, charSection } = findChar(
-            indexes,
-            +e.target.dataset.characterNumber
-          );
-          const url = `http://localhost:8000/daikanwajiten/${volume.volumePath}#page=${charSection.page}`;
-          
-          console.log({ charSection, url,'volume.mainTextStartPageNumber': volume.mainTextStartPageNumber,
-           'charSection.page':charSection.page,
-           'volume.mainTextStartPageNumber + charSection.page': volume.mainTextStartPageNumber + charSection.page})
-          iframe.src = url
-        } else if (e.target.dataset && e.target.dataset.pageNumber) {
-          const { volume, charSection } = findChar(
-            indexes,
-            +e.target.dataset.firstCharacterNumber
-          );
-          const { volumeIndex } = volume;
-          console.log({
-            dataset: e.target.dataset,
-            volume,
-            charSection,
-          });
-          if (!volume)
-            throw new Error(
-              "No volume found for entry " + e.target.dataset.name
-            );
-          const runningPageNumber = Number(
-            e.target.dataset.pageNumber.match(/\d+/)[0]
-          );
-          const relativePageNumber =
-            runningPageNumber -
-            volume.mainTextStartPageRunningNumber +
-            volume.mainTextStartPageNumber;
-          console.log({
-            runningPageNumber,
-            relativePageNumber,
-            "runningPageNumber - volume.mainTextStartPageRunningNumber":
-              runningPageNumber - volume.mainTextStartPageRunningNumber,
-            "volume.mainTextStartPageNumber": volume.mainTextStartPageNumber,
-          });
-          const url = `http://localhost:8000/daikanwajiten/${volume.volumePath}#page=${relativePageNumber}`;
-          // const url = encodeURI(`file://${volume.volumePath}`) + `#${charSection.charNumber}`
-          if (prevVolumeIndex == volumeIndex) {
-            console.log('Refreshing page ' + url)
-            iframe.src = url;
-            setTimeout(() => iframe.contentWindow.location.reload(), 0);
-          } else {
-            console.log('Navigating to ' + url)
-            iframe.src = url;
-          }
-          prevVolumeIndex = volumeIndex;
-        }
-      });
-
-      window.form.addEventListener("submit", async (e) => {
-        e.preventDefault();
         const segments = window.inputText.value.trim().split(/[\s,\.!?？。，]+/gu)
         const segmentsWithMatches = await Promise.all(segments.map(async (segment) => {
           const matches = []
@@ -184,18 +105,130 @@
           }
         }))
 
-        window.massLookup.innerHTML = segmentsWithMatches.flatMap(({ segment, matches }) => {
-          return [
-            `<big>${segment}</big>`,
-            `<br />`,
-            `<ul>${matches.map(({type,match}) => {
-              if (type === 'CHARACTER')
-                return `<li data-character-number=${match.firstCharacterNumber}>${match.firstCharacterNumber} ${match.name[0]}</li>`              
+        if (segmentsWithMatches.some(({ matches }) => matches.length)) {
+          segmentsWithMatches[0]
+          window.massLookup.innerHTML = segmentsWithMatches.flatMap(({ segment, matches }) => {
+            return [
+              `<big>${segment}</big>`,
+              `<br />`,
+              `<ul>${matches.map(({type,match}) => {
+                if (type === 'CHARACTER')
+                  return `<li data-character-number=${match.firstCharacterNumber}>${match.firstCharacterNumber} ${match.name[0]}</li>`              
 
-              return matchListItem(match)
-            }).join('\n')}</ul>`
-          ].join('\n')
-        }).join('\n\n')
+                return matchListItem(match)
+              }).join('\n')}</ul>`
+            ].join('\n')
+          }).join('\n\n')
+
+
+          setTimeout(() => {
+            const firstMatch = window.massLookup.querySelector('li')
+            if (firstMatch) {
+              navigateToPage(firstMatch)
+            }
+          },0)
+        }
+
+
+        const trimmed = e.target.value.trim();
+        const matches = trimmed
+          ? await db.jukugo.where("name").startsWith(trimmed).toArray()
+          : [];
+        console.log(e.target.value);
+        console.log({ matches, trimmed, });
+        
+        let characterMatch = await db.jukugo.where("name").startsWith([...trimmed][0]).first()
+        window.characterMatch = characterMatch ? characterMatch.firstCharacterNumber : null
+        const matchesGroups = matches
+          .reduce((all, match) => {
+            all[match.firstCharacterNumber] = all[match.firstCharacterNumber] || []
+            all[match.firstCharacterNumber].push(match)
+            return all
+          }, {})
+        window.matches.innerHTML = `${Object.entries(matchesGroups).map(([firstCharacterNumber, matches]) => {
+            return `<small data-character-number="${firstCharacterNumber}">${firstCharacterNumber}</small>
+            <ul>${
+              matches.map((match) => {
+
+                return matchListItem(match)
+              }).join('')
+            }</ul>`
+          })
+              .join("")}`;
+
+      });
+
+      window.prevVolumeIndex = null;
+
+      document.querySelector('.container').addEventListener("click", (e) => {
+        const linkElement = e.target
+        console.log(linkElement); 
+        navigateToPage(linkElement)
+      });
+
+      function navigateToPage(linkElement) {
+        if (linkElement.dataset.supplement) {
+          console.log('supplement')
+          const page = +linkElement.dataset.pageNumber.slice(3) + 84
+          const url = `http://localhost:8000/daikanwajiten/${"大漢和辞典　補巻.pdf"}#page=${page}`;
+          iframe.src = url
+        } else if (linkElement.dataset && linkElement.dataset.characterNumber) { 
+          const { volume, charSection } = findChar(
+            indexes,
+            +linkElement.dataset.characterNumber,
+          );
+          const url = `http://localhost:8000/daikanwajiten/${volume.volumePath}#page=${charSection.page}`;
+          
+          console.log({ charSection, url,'volume.mainTextStartPageNumber': volume.mainTextStartPageNumber,
+          'charSection.page':charSection.page,
+          'volume.mainTextStartPageNumber + charSection.page': volume.mainTextStartPageNumber + charSection.page})
+          iframe.src = url
+        } else if (linkElement.dataset && linkElement.dataset.pageNumber) {
+          const { volume, charSection } = findChar(
+            indexes,
+            +linkElement.dataset.firstCharacterNumber,
+          );
+          const { volumeIndex } = volume;
+          console.log({
+            dataset: linkElement.dataset,
+            volume,
+            charSection,
+          });
+          if (!volume)
+            throw new Error(
+              "No volume found for entry " + linkElement.dataset.name
+            );
+          const runningPageNumber = Number(
+            linkElement.dataset.pageNumber.match(/\d+/)[0]
+          );
+          const relativePageNumber =
+            runningPageNumber -
+            volume.mainTextStartPageRunningNumber +
+            volume.mainTextStartPageNumber;
+          console.log({
+            runningPageNumber,
+            relativePageNumber,
+            "runningPageNumber - volume.mainTextStartPageRunningNumber":
+              runningPageNumber - volume.mainTextStartPageRunningNumber,
+            "volume.mainTextStartPageNumber": volume.mainTextStartPageNumber,
+          });
+          const url = `http://localhost:8000/daikanwajiten/${volume.volumePath}#page=${relativePageNumber}`;
+          // const url = encodeURI(`file://${volume.volumePath}`) + `#${charSection.charNumber}`
+          if (prevVolumeIndex == volumeIndex) {
+            console.log('Refreshing page ' + url)
+            iframe.src = url;
+            setTimeout(() => iframe.contentWindow.location.reload(), 0);
+          } else {
+            console.log('Navigating to ' + url)
+            iframe.src = url;
+          }
+          prevVolumeIndex = volumeIndex;
+        }
+      }
+      
+
+      window.form.addEventListener("submit", async (e) => {
+       e.preventDefaullt()
       });
 
       function matchListItem(match) {
@@ -204,7 +237,8 @@
           pageNumber
         }" data-first-character-number=${
           firstCharacterNumber
-        } data-name=${name} page-number=${pageNumber}>${  
+        } data-name=${name} page-number=${pageNumber}
+        ${pageNumber.startsWith('DPH') ? ' data-supplement="data-supplement"' : ''}>${  
           jukugoEntryNumber.replace(/^0+/, "")
         } ${
           name

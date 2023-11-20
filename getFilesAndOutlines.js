@@ -32,6 +32,7 @@ async function getFilesAndOutlines(nameToPath) {
     "大漢和辞典　巻十 [修訂版] by 諸橋轍次.pdf",
     "大漢和辞典　巻十一 [修訂版] by 諸橋轍次.pdf",
     "大漢和辞典　巻十二 [修訂版] by 諸橋轍次.pdf",
+    // supplement: "大漢和辞典　補巻.pdf"
   ];
   const volumePaths = volumeFilenames
 
@@ -55,21 +56,22 @@ async function getFilesAndOutlines(nameToPath) {
   const volumesWithPageHeaderCharacters = await Promise.all(volumesWithSections.map(async ({ volume, volumePath, mainText, volumeIndex }) => {
     const mainTextStartPageIndex = await (volume.getPageIndex(mainText.dest[0]))
     const mainTextEndPageIndex = volume.numPages
-    return {
+    const sections = mainText.items
+    return { 
       path: volumePath,
       totalPages: volume.numPages,
       index: volumeIndex,
       mainTextStartPageIndex,
       pagesInMainText: mainTextEndPageIndex - mainTextStartPageIndex,
-      pageHeaderCharacters: await Promise.all(mainText.items.map(async (item) => {
+      pageHeaderCharacters: await Promise.all(sections.map(async (item) => {
         assert.match(
           item.title,
           /^\d+$/,
-          `vol ${volumeIndex} unexpected section title ${item.title}`
+          `vol ${volumeIndex + 1} unexpected section title ${item.title}`
         );
-        const charNumber = +item.title
+        const charNumber = +item.title ?? 0
         if (Number.isNaN(charNumber)) {
-          throw new Error(`Could not parse title ${item.title}`)
+          throw new Error(`Could not parse title ${item.title} in volume ${volumeIndex + 1}`)
         }
         assert.equal(
           item.items.length,
@@ -82,6 +84,11 @@ async function getFilesAndOutlines(nameToPath) {
           // return null
         }
         const pageIndex = item.dest?.[0] ? await (volume.getPageIndex(item.dest?.[0])) : null
+
+        if (pageIndex === null) {
+          console.error(`No page found in volume ${volumeIndex + 1} for item ${item.title}`)
+          console.log(item.title, item)
+        }
 
         return { charNumber, page: pageIndex + 1 };
       }))
@@ -100,17 +107,13 @@ async function getFilesAndOutlines(nameToPath) {
       volumeIndex: v.index,
       headerChars: v.pageHeaderCharacters.map(({ charNumber, page }, index) => {
         if (!page) return []
-        if (!page[0]) {
-          console.log('no page number for ', { charNumber })
-          return []
-        }
 
         return { charNumber, page, index }
       })
     }
 
     pagesSoFar += volumesWithPageHeaderCharacters[i].totalPages
-    mainTextPag`esSoFar += volumesWithPageHeaderCharacters[i].pagesInMainText - 2
+    mainTextPagesSoFar += volumesWithPageHeaderCharacters[i].pagesInMainText - 2
 
     return newItem
   })

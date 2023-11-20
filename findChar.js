@@ -2,7 +2,6 @@ const DAI_KANWA_TOTAL_CHARS = 51110
 
 
 function findChar(json, wantedCharacterCode) {
-  console.log('searching for ' + wantedCharacterCode)
   const volume = getVolumeWithChar(json, wantedCharacterCode)
   const charSection = volume && getSectionWithinVolume(volume, wantedCharacterCode)
   return {charSection, volume}
@@ -65,6 +64,7 @@ function lastHeadChar(volumes, volumeIndex) {
 
 function getCharactersRangeInVolume(volumes, volumeIndex) {
   const firstCharacterNumberInVolume = firstHeadChar(volumes, volumeIndex).charNumber
+  if (typeof firstCharacterNumberInVolume !== 'number') throw new Error(`Could not find first character number in volume ${volumeIndex + 1}`)
 
   const nextVolume = volumes[volumeIndex + 1]
   const lastCharacterNumberinVolume = nextVolume ? lastHeadChar(volumes, volumeIndex).charNumber : DAI_KANWA_TOTAL_CHARS

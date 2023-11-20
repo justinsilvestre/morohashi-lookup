@@ -29,9 +29,21 @@ window.initializeDb = async function initializeDb(db) {
     })
   }
 
-  console.log(`Adding ${toAdd.length} items`)
+  console.log(`Adding ${toAdd.length} items total.`)
 
-  await db.jukugo.bulkAdd(toAdd)
+  const startTime = Date.now()
+  const chunkSize = 10000
+  for (let i = 0; i < toAdd.length; i += chunkSize) {
+    console.log(`Adding items ${i + 1} to ${1 + Math.min(i + chunkSize, toAdd.length)} (${Math.round(100 * (i + chunkSize) / toAdd.length)}%)`)
+    const chunk = toAdd.slice(i, i + chunkSize)
+    try {
+      await db.jukugo.bulkAdd(chunk)
+    } catch (err) {
+      console.error(err)
+    }
+    const timeElapsed = Date.now() - startTime
+    console.log(`Added items ${i + 1} to ${1 + Math.min(i + chunkSize, toAdd.length)} in ${timeElapsed / 1000}s`)
+  }
 
   console.log('finished importing entries!')
 }
