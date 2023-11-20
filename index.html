@@ -1,0 +1,215 @@
+<html>
+  <meta charset="utf-8" />
+  <head></head>
+  <style type="text/css">
+    #iframe {
+      width: 100%;
+    }
+
+    .container {
+      display: flex;
+      height: 100%;
+      width: 100%;
+    }
+
+    form,ul {
+      margin:0;
+    }
+
+    #matches {
+      max-height: 100%;
+      overflow-y: scroll;
+    }
+    
+    ul {
+      padding-left: 0;
+    }
+
+  </style>
+  <script src="./findChar.js"></script>
+  <script src="./__indexes.js"></script>
+  <script src="./dexie_3.2.1.js"></script>
+  <script src="./getJukugoText.js"></script>
+  <script src="./initializeDb.js"></script>
+
+  <body>
+    <div class="container">
+      <section class="sideBar">
+        <section id="massLookup"></section>
+        <form id="form">
+          <input id="inputText" type="text"></input>
+
+          <button>go</button>
+        </form>
+        <section id="matches"></section>
+      </section>
+
+      <iframe id="iframe"></iframe>
+    </div>
+
+    <script type="text/javascript">
+      (async function () {
+        window.db = new Dexie("morohashiLookup");
+
+        // Declare tables, IDs and indexes
+        db.version(1).stores({
+          jukugo: "name, firstCharacterNumber, jukugoEntryNumber, pageNumber",
+        });
+
+        console.log(db.jukugo);
+        if (!(await db.jukugo.toCollection().count())) {
+          console.log("Initializing db");
+          console.log(await db.jukugo.toCollection().count());
+          await initializeDb(db);
+        }
+      })();
+
+      window.inputText.addEventListener("input", async (e) => {
+        const trimmed = e.target.value.trim();
+        const matches = trimmed
+          ? await db.jukugo.where("name").startsWith(trimmed).toArray()
+          : [];
+        console.log(e.target.value);
+        console.log({ matches, trimmed, });
+        let characterMatch = await db.jukugo.where("name").startsWith([...trimmed][0]).first()
+        window.characterMatch = characterMatch ? characterMatch.firstCharacterNumber : null
+        const matchesGroups = matches
+          .reduce((all, match) => {
+            all[match.firstCharacterNumber] = all[match.firstCharacterNumber] || []
+            all[match.firstCharacterNumber].push(match)
+            return all
+          }, {})
+        window.matches.innerHTML = `${Object.entries(matchesGroups).map(([firstCharacterNumber, matches]) => {
+            return `<small data-character-number="${firstCharacterNumber}">${firstCharacterNumber}</small>
+            <ul>${
+              matches.map((match) => {
+
+                return matchListItem(match)
+              }).join('')
+            }</ul>`
+          })
+              .join("")}`;
+      });
+
+      window.prevVolumeIndex = null;
+
+      document.querySelector('.container').addEventListener("click", (e) => {
+        console.log(e.target);
+        if (e.target.dataset && e.target.dataset.characterNumber) { 
+          const { volume, charSection } = findChar(
+            indexes,
+            +e.target.dataset.characterNumber
+          );
+          const url = `http://localhost:8000/daikanwajiten/${volume.volumePath}#page=${charSection.page}`;
+          
+          console.log({ charSection, url,'volume.mainTextStartPageNumber': volume.mainTextStartPageNumber,
+           'charSection.page':charSection.page,
+           'volume.mainTextStartPageNumber + charSection.page': volume.mainTextStartPageNumber + charSection.page})
+          iframe.src = url
+        } else if (e.target.dataset && e.target.dataset.pageNumber) {
+          const { volume, charSection } = findChar(
+            indexes,
+            +e.target.dataset.firstCharacterNumber
+          );
+          const { volumeIndex } = volume;
+          console.log({
+            dataset: e.target.dataset,
+            volume,
+            charSection,
+          });
+          if (!volume)
+            throw new Error(
+              "No volume found for entry " + e.target.dataset.name
+            );
+          const runningPageNumber = Number(
+            e.target.dataset.pageNumber.match(/\d+/)[0]
+          );
+          const relativePageNumber =
+            runningPageNumber -
+            volume.mainTextStartPageRunningNumber +
+            volume.mainTextStartPageNumber;
+          console.log({
+            runningPageNumber,
+            relativePageNumber,
+            "runningPageNumber - volume.mainTextStartPageRunningNumber":
+              runningPageNumber - volume.mainTextStartPageRunningNumber,
+            "volume.mainTextStartPageNumber": volume.mainTextStartPageNumber,
+          });
+          const url = `http://localhost:8000/daikanwajiten/${volume.volumePath}#page=${relativePageNumber}`;
+          // const url = encodeURI(`file://${volume.volumePath}`) + `#${charSection.charNumber}`
+          if (prevVolumeIndex == volumeIndex) {
+            console.log('Refreshing page ' + url)
+            iframe.src = url;
+            setTimeout(() => iframe.contentWindow.location.reload(), 0);
+          } else {
+            console.log('Navigating to ' + url)
+            iframe.src = url;
+          }
+          prevVolumeIndex = volumeIndex;
+        }
+      });
+
+      window.form.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const segments = window.inputText.value.trim().split(/[\s,\.!?？。，]+/gu)
+        const segmentsWithMatches = await Promise.all(segments.map(async (segment) => {
+          const matches = []
+          
+          const chars = [...segment]
+          const matchesByIndex = await Promise.all(chars.map(async (char, charIndex) => {
+            const matchesAtIndex = []
+            let nextIndex = charIndex + 1
+            while (nextIndex <= chars.length) {
+              const lookupText = chars.slice(charIndex, nextIndex).join('')
+              console.log({ charIndex, nextIndex, lookupText })
+              if (lookupText.length === 1) {
+                const lookupResult = await db.jukugo.where("name").startsWith(lookupText).first()
+                if (lookupResult) matchesAtIndex.push({ type: 'CHARACTER', match: lookupResult })
+              } else {
+                const lookupResult = await db.jukugo.where("name").equals(lookupText).toArray()
+                matchesAtIndex.push(...lookupResult.map(match => ({ type: 'JUKUGO', match })))
+              }
+              nextIndex += 1
+            }
+
+            return matchesAtIndex.reverse()
+          }))
+          for (const matchesAtIndex of matchesByIndex) {
+            matches.push(...matchesAtIndex)
+          }
+
+          return {
+            segment,
+            matches
+          }
+        }))
+
+        window.massLookup.innerHTML = segmentsWithMatches.flatMap(({ segment, matches }) => {
+          return [
+            `<big>${segment}</big>`,
+            `<br />`,
+            `<ul>${matches.map(({type,match}) => {
+              if (type === 'CHARACTER')
+                return `<li data-character-number=${match.firstCharacterNumber}>${match.firstCharacterNumber} ${match.name[0]}</li>`              
+
+              return matchListItem(match)
+            }).join('\n')}</ul>`
+          ].join('\n')
+        }).join('\n\n')
+      });
+
+      function matchListItem(match) {
+        const { pageNumber, firstCharacterNumber, jukugoEntryNumber, name } = match
+        return `<li data-page-number="${
+          pageNumber
+        }" data-first-character-number=${
+          firstCharacterNumber
+        } data-name=${name} page-number=${pageNumber}>${  
+          jukugoEntryNumber.replace(/^0+/, "")
+        } ${
+          name
+        }${pageNumber.startsWith('DPH') ? ` 補巻` : ''}</li>`;
+      }
+    </script>
+  </body>
+</html>
